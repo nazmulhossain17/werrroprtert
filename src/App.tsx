@@ -69,6 +69,12 @@ function App() {
 
   useEffect(() => {
     fetchSystemInfo()
+
+    if (!window.electronAPI) {
+      console.warn('electronAPI is not available - preload script may have failed to load')
+      return
+    }
+
     fetchScreenshotStatus()
 
     window.electronAPI.onRefreshSystemInfo(() => {
