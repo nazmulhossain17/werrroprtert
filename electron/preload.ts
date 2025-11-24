@@ -1,4 +1,5 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron'
+const { contextBridge, ipcRenderer } = require('electron')
+import type { IpcRendererEvent } from 'electron'
 
 export interface SystemInfo {
   hostname: string
