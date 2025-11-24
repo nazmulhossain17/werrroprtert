@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { SystemInfo } from '../electron/preload'
+import type { SystemInfo } from '../electron/preload'
 
 function App() {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null)
