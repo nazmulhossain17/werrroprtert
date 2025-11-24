@@ -1,6 +1,7 @@
-import { app, BrowserWindow, Tray, Menu, ipcMain, BrowserWindowConstructorOptions } from 'electron'
+import { app, BrowserWindow, Tray, Menu, ipcMain, BrowserWindowConstructorOptions, desktopCapturer, screen } from 'electron'
 import path from 'path'
 import { fileURLToPath } from 'url'
+import fs from 'fs'
 import si from 'systeminformation'
 import os from 'os'
 
@@ -9,6 +10,9 @@ const __dirname = path.dirname(__filename)
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+let screenshotInterval: NodeJS.Timeout | null = null
+let isScreenshotEnabled = false
+let screenshotsDir = ''
 
 declare module 'electron' {
   interface App {
@@ -130,8 +134,90 @@ async function getSystemInfo() {
   }
 }
 
+async function captureScreenshot() {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: screen.getPrimaryDisplay().workAreaSize
+    })
+
+    if (sources.length === 0) {
+      console.error('No screen sources available')
+      return
+    }
+
+    const screenshot = sources[0].thumbnail
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const filename = `screenshot-${timestamp}.png`
+    const filepath = path.join(screenshotsDir, filename)
+
+    fs.writeFileSync(filepath, screenshot.toPNG())
+    console.log(`Screenshot saved: ${filepath}`)
+
+    if (mainWindow) {
+      mainWindow.webContents.send('screenshot-captured', { filename, filepath })
+    }
+  } catch (error) {
+    console.error('Error capturing screenshot:', error)
+  }
+}
+
+function startScreenshots(interval: number = 30000) {
+  if (screenshotInterval) {
+    clearInterval(screenshotInterval)
+  }
+
+  screenshotsDir = path.join(app.getPath('pictures'), 'SystemMonitorScreenshots')
+  
+  if (!fs.existsSync(screenshotsDir)) {
+    fs.mkdirSync(screenshotsDir, { recursive: true })
+  }
+
+  isScreenshotEnabled = true
+  captureScreenshot()
+  
+  screenshotInterval = setInterval(() => {
+    captureScreenshot()
+  }, interval)
+
+  console.log(`Screenshots started, saving to: ${screenshotsDir}`)
+  return { enabled: true, directory: screenshotsDir, interval }
+}
+
+function stopScreenshots() {
+  if (screenshotInterval) {
+    clearInterval(screenshotInterval)
+    screenshotInterval = null
+  }
+  isScreenshotEnabled = false
+  console.log('Screenshots stopped')
+  return { enabled: false }
+}
+
 ipcMain.handle('get-system-info', async () => {
   return await getSystemInfo()
+})
+
+ipcMain.handle('start-screenshots', async (event, interval?: number) => {
+  return startScreenshots(interval)
+})
+
+ipcMain.handle('stop-screenshots', async () => {
+  return stopScreenshots()
+})
+
+ipcMain.handle('get-screenshot-status', async () => {
+  return {
+    enabled: isScreenshotEnabled,
+    directory: screenshotsDir,
+  }
+})
+
+ipcMain.handle('open-screenshots-folder', async () => {
+  if (screenshotsDir && fs.existsSync(screenshotsDir)) {
+    const { shell } = require('electron')
+    shell.openPath(screenshotsDir)
+  }
 })
 
 app.whenReady().then(() => {

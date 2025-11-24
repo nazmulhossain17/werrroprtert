@@ -12,6 +12,12 @@ A modern Electron desktop application built with Vite, React, and TypeScript tha
   - System Health (uptime, CPU load, memory usage)
   - Disk Information (filesystem, size, used space, available space)
 
+- **Automatic Screenshots**: Capture screenshots automatically every 30 seconds
+  - Start/stop screenshot capture with one click
+  - Screenshots saved to Pictures/SystemMonitorScreenshots folder
+  - View screenshot count and save location in real-time
+  - Open screenshots folder directly from the app
+  
 - **Background Running**: The application runs in the system tray and continues running in the background when closed
 - **System Tray Integration**: Access the app quickly from the system tray with options to show, refresh, or quit
 - **Modern UI**: Beautiful gradient interface with responsive cards and real-time data visualization
@@ -67,8 +73,14 @@ npm run electron:build
 1. Launch the application
 2. The system information will be automatically loaded and displayed
 3. Click the "Refresh System Info" button to update the information
-4. Close the window to minimize the app to the system tray
-5. Right-click the system tray icon to access app options:
+4. **Automatic Screenshots**:
+   - Click "Start Screenshots" to begin capturing screenshots every 30 seconds
+   - Screenshots are saved to your Pictures/SystemMonitorScreenshots folder
+   - Click "Open Folder" to view captured screenshots
+   - Click "Stop Screenshots" to stop the automatic capture
+   - The app shows the number of screenshots captured and save location
+5. Close the window to minimize the app to the system tray
+6. Right-click the system tray icon to access app options:
    - **Show App**: Bring the application window back
    - **Refresh System Info**: Update system information
    - **Quit**: Exit the application completely

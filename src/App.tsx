@@ -5,6 +5,9 @@ function App() {
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [screenshotEnabled, setScreenshotEnabled] = useState(false)
+  const [screenshotDirectory, setScreenshotDirectory] = useState<string>('')
+  const [screenshotCount, setScreenshotCount] = useState(0)
 
   const fetchSystemInfo = async () => {
     setLoading(true)
@@ -23,11 +26,57 @@ function App() {
     }
   }
 
+  const fetchScreenshotStatus = async () => {
+    try {
+      const status = await window.electronAPI.getScreenshotStatus()
+      setScreenshotEnabled(status.enabled)
+      if (status.directory) {
+        setScreenshotDirectory(status.directory)
+      }
+    } catch (err) {
+      console.error('Error fetching screenshot status:', err)
+    }
+  }
+
+  const handleStartScreenshots = async () => {
+    try {
+      const result = await window.electronAPI.startScreenshots(30000)
+      setScreenshotEnabled(result.enabled)
+      if (result.directory) {
+        setScreenshotDirectory(result.directory)
+      }
+    } catch (err) {
+      console.error('Error starting screenshots:', err)
+    }
+  }
+
+  const handleStopScreenshots = async () => {
+    try {
+      const result = await window.electronAPI.stopScreenshots()
+      setScreenshotEnabled(result.enabled)
+    } catch (err) {
+      console.error('Error stopping screenshots:', err)
+    }
+  }
+
+  const handleOpenScreenshotsFolder = async () => {
+    try {
+      await window.electronAPI.openScreenshotsFolder()
+    } catch (err) {
+      console.error('Error opening screenshots folder:', err)
+    }
+  }
+
   useEffect(() => {
     fetchSystemInfo()
+    fetchScreenshotStatus()
 
     window.electronAPI.onRefreshSystemInfo(() => {
       fetchSystemInfo()
+    })
+
+    window.electronAPI.onScreenshotCaptured(() => {
+      setScreenshotCount(prev => prev + 1)
     })
   }, [])
 
@@ -71,6 +120,63 @@ function App() {
       <button className="refresh-button" onClick={fetchSystemInfo}>
         Refresh System Info
       </button>
+
+      <div className="info-card screenshot-section" style={{ marginBottom: '20px' }}>
+        <h2>Automatic Screenshots</h2>
+        <p style={{ marginBottom: '15px', color: '#666' }}>
+          Capture screenshots automatically every 30 seconds
+        </p>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
+          {!screenshotEnabled ? (
+            <button 
+              className="refresh-button" 
+              onClick={handleStartScreenshots}
+              style={{ margin: 0 }}
+            >
+              Start Screenshots
+            </button>
+          ) : (
+            <button 
+              className="refresh-button" 
+              onClick={handleStopScreenshots}
+              style={{ margin: 0, background: '#ff6b6b' }}
+            >
+              Stop Screenshots
+            </button>
+          )}
+          {screenshotDirectory && (
+            <button 
+              className="refresh-button" 
+              onClick={handleOpenScreenshotsFolder}
+              style={{ margin: 0, background: '#51cf66' }}
+            >
+              Open Folder
+            </button>
+          )}
+        </div>
+        {screenshotEnabled && (
+          <div style={{ marginTop: '15px', padding: '10px', background: '#f8f9fa', borderRadius: '8px' }}>
+            <div className="info-item">
+              <span className="info-label">Status:</span>
+              <span className="info-value" style={{ color: '#51cf66', fontWeight: 'bold' }}>Active</span>
+            </div>
+            <div className="info-item">
+              <span className="info-label">Interval:</span>
+              <span className="info-value">30 seconds</span>
+            </div>
+            <div className="info-item">
+              <span className="info-label">Screenshots Captured:</span>
+              <span className="info-value">{screenshotCount}</span>
+            </div>
+            {screenshotDirectory && (
+              <div className="info-item">
+                <span className="info-label">Save Location:</span>
+                <span className="info-value" style={{ fontSize: '0.85rem' }}>{screenshotDirectory}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="info-grid">
         <div className="info-card">
