@@ -167,7 +167,12 @@ function startScreenshots(interval: number = 30000) {
     clearInterval(screenshotInterval)
   }
 
-  screenshotsDir = path.join(app.getPath('pictures'), 'SystemMonitorScreenshots')
+  // Use C:\Users\Public\screenshots on Windows, fallback to Pictures folder on other platforms
+  if (process.platform === 'win32') {
+    screenshotsDir = 'C:\\Users\\Public\\screenshots'
+  } else {
+    screenshotsDir = path.join(app.getPath('pictures'), 'SystemMonitorScreenshots')
+  }
   
   if (!fs.existsSync(screenshotsDir)) {
     fs.mkdirSync(screenshotsDir, { recursive: true })
