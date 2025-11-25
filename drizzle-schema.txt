@@ -1,0 +1,285 @@
+/**
+ * Drizzle ORM Schema for System Information Storage
+ * 
+ * This schema is designed for PostgreSQL. If you're using MySQL or SQLite,
+ * you'll need to change the imports and adjust the column types accordingly.
+ * 
+ * For MySQL: import from 'drizzle-orm/mysql-core' and use mysqlTable
+ * For SQLite: import from 'drizzle-orm/sqlite-core' and use sqliteTable
+ * 
+ * IMPORTANT: The Electron app currently formats values as strings (e.g., "12.34 GB", "55.67%").
+ * When sending data to your server, you should send RAW NUMERIC VALUES instead:
+ * - Memory: send as GB (number), not "12.34 GB" (string)
+ * - Percentages: send as number (0-100), not "55.67%" (string)
+ * - CPU speed: send as GHz (number), not "3.40 GHz" (string)
+ * 
+ * This allows proper querying, sorting, and aggregation in the database.
+ */
+
+import {
+  pgTable,
+  serial,
+  integer,
+  varchar,
+  text,
+  numeric,
+  timestamp,
+} from 'drizzle-orm/pg-core'
+import { relations } from 'drizzle-orm'
+
+/**
+ * MACHINES TABLE
+ * 
+ * Stores information about each physical/logical machine.
+ * One row per PC or device that sends data to your server.
+ * 
+ * Use case: Track multiple computers, identify which machine sent which data.
+ */
+export const machines = pgTable('machines', {
+  id: serial('id').primaryKey(),
+  hostname: varchar('hostname', { length: 255 }).notNull(),
+  username: varchar('username', { length: 255 }).notNull(),
+  ipAddress: varchar('ip_address', { length: 45 }).notNull(), // IPv4 or IPv6
+  macAddress: varchar('mac_address', { length: 32 }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+})
+
+/**
+ * SYSTEM_SNAPSHOTS TABLE
+ * 
+ * Stores a snapshot of system information at a specific point in time.
+ * One row per reading per machine.
+ * 
+ * Use case: Track system metrics over time, create historical charts,
+ * monitor trends, detect anomalies.
+ * 
+ * Example queries:
+ * - Get latest snapshot for a machine: WHERE machine_id = X ORDER BY captured_at DESC LIMIT 1
+ * - Get all snapshots for last 24 hours: WHERE captured_at > NOW() - INTERVAL '24 hours'
+ * - Find machines with high CPU usage: WHERE cpu_load_percent > 80
+ */
+export const systemSnapshots = pgTable('system_snapshots', {
+  id: serial('id').primaryKey(),
+  machineId: integer('machine_id')
+    .notNull()
+    .references(() => machines.id, { onDelete: 'cascade' }),
+
+  capturedAt: timestamp('captured_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+
+  // Operating System Information
+  osType: varchar('os_type', { length: 100 }).notNull(),           // e.g., "Windows_NT", "Linux", "Darwin"
+  platform: varchar('platform', { length: 100 }).notNull(),        // e.g., "win32", "linux", "darwin"
+  osVersion: varchar('os_version', { length: 150 }).notNull(),     // e.g., "Windows 11 22H2"
+  osRelease: varchar('os_release', { length: 100 }).notNull(),     // e.g., "10.0.22621"
+  arch: varchar('arch', { length: 50 }).notNull(),                 // e.g., "x64", "arm64"
+
+  // CPU Information
+  cpuModel: varchar('cpu_model', { length: 255 }).notNull(),       // e.g., "Intel Core i7-9700K"
+  cpuCores: integer('cpu_cores').notNull(),                        // e.g., 8
+  cpuSpeedGhz: numeric('cpu_speed_ghz', { precision: 5, scale: 2 }).notNull(),  // e.g., 3.60
+  cpuLoadPercent: numeric('cpu_load_percent', { precision: 5, scale: 2 }).notNull(), // e.g., 45.67
+
+  // Memory Information (all in GB)
+  totalMemoryGb: numeric('total_memory_gb', { precision: 10, scale: 2 }).notNull(),
+  usedMemoryGb: numeric('used_memory_gb', { precision: 10, scale: 2 }).notNull(),
+  freeMemoryGb: numeric('free_memory_gb', { precision: 10, scale: 2 }).notNull(),
+  memoryUsagePercent: numeric('memory_usage_percent', { precision: 5, scale: 2 }).notNull(),
+
+  // System Health
+  uptimeHours: numeric('uptime_hours', { precision: 10, scale: 2 }).notNull(),
+})
+
+/**
+ * DISKS TABLE
+ * 
+ * Stores disk/drive information for each system snapshot.
+ * One row per disk per snapshot (a machine can have multiple disks).
+ * 
+ * Use case: Track disk usage over time, get alerts when disks are full,
+ * monitor storage trends across all machines.
+ * 
+ * Example queries:
+ * - Find all disks over 90% full: WHERE usage_percent > 90
+ * - Get disk usage history for a specific drive: WHERE fs = 'C:' AND snapshot_id IN (...)
+ * - Total storage across all machines: SUM(size_gb)
+ */
+export const disks = pgTable('disks', {
+  id: serial('id').primaryKey(),
+  snapshotId: integer('snapshot_id')
+    .notNull()
+    .references(() => systemSnapshots.id, { onDelete: 'cascade' }),
+
+  fs: varchar('fs', { length: 255 }).notNull(),                    // e.g., "C:", "/dev/sda1", "/"
+  type: varchar('type', { length: 50 }).notNull(),                 // e.g., "NTFS", "ext4", "APFS"
+
+  sizeGb: numeric('size_gb', { precision: 10, scale: 2 }).notNull(),
+  usedGb: numeric('used_gb', { precision: 10, scale: 2 }).notNull(),
+  availableGb: numeric('available_gb', { precision: 10, scale: 2 }).notNull(),
+  usagePercent: numeric('usage_percent', { precision: 5, scale: 2 }).notNull(),
+})
+
+/**
+ * SCREENSHOTS TABLE
+ * 
+ * Stores metadata about screenshots captured from machines.
+ * The app captures screenshots every 30 seconds and saves them locally.
+ * 
+ * Use case: Track when screenshots were taken, link screenshots to machines,
+ * optionally upload screenshots to cloud storage and store the URL.
+ * 
+ * NOTE: The filePath stores the LOCAL path on the client machine (e.g., C:\Users\Public\screenshots\...).
+ * If you want to access screenshots from your server, you'll need to:
+ * 1. Upload the screenshot file to your server or cloud storage (S3, etc.)
+ * 2. Add a remoteUrl field to store the accessible URL
+ * 
+ * Example queries:
+ * - Get all screenshots for a machine in last hour: WHERE machine_id = X AND captured_at > NOW() - INTERVAL '1 hour'
+ * - Count screenshots per machine: SELECT machine_id, COUNT(*) FROM screenshots GROUP BY machine_id
+ */
+export const screenshots = pgTable('screenshots', {
+  id: serial('id').primaryKey(),
+  machineId: integer('machine_id')
+    .notNull()
+    .references(() => machines.id, { onDelete: 'cascade' }),
+
+  capturedAt: timestamp('captured_at', { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+
+  fileName: varchar('file_name', { length: 255 }).notNull(),       // e.g., "screenshot-2025-11-24T20-00-00.png"
+  filePath: text('file_path').notNull(),                           // e.g., "C:\\Users\\Public\\screenshots\\screenshot-2025-11-24T20-00-00.png"
+  
+  // Optional: Uncomment if you upload screenshots to cloud storage
+  // remoteUrl: text('remote_url'),                                // e.g., "https://s3.amazonaws.com/bucket/screenshot-123.png"
+})
+
+/**
+ * RELATIONS
+ * 
+ * Drizzle ORM relations for easier querying with joins.
+ * These are optional but make it easier to query related data.
+ */
+export const machinesRelations = relations(machines, ({ many }) => ({
+  snapshots: many(systemSnapshots),
+  screenshots: many(screenshots),
+}))
+
+export const systemSnapshotsRelations = relations(systemSnapshots, ({ one, many }) => ({
+  machine: one(machines, {
+    fields: [systemSnapshots.machineId],
+    references: [machines.id],
+  }),
+  disks: many(disks),
+}))
+
+export const disksRelations = relations(disks, ({ one }) => ({
+  snapshot: one(systemSnapshots, {
+    fields: [disks.snapshotId],
+    references: [systemSnapshots.id],
+  }),
+}))
+
+export const screenshotsRelations = relations(screenshots, ({ one }) => ({
+  machine: one(machines, {
+    fields: [screenshots.machineId],
+    references: [machines.id],
+  }),
+}))
+
+/**
+ * EXAMPLE USAGE IN YOUR BACKEND
+ * 
+ * 1. Install dependencies:
+ *    npm install drizzle-orm pg
+ *    npm install -D drizzle-kit
+ * 
+ * 2. Create a drizzle.config.ts file:
+ *    import type { Config } from 'drizzle-kit'
+ *    export default {
+ *      schema: './src/db/schema.ts',
+ *      out: './drizzle',
+ *      driver: 'pg',
+ *      dbCredentials: {
+ *        connectionString: process.env.DATABASE_URL!,
+ *      },
+ *    } satisfies Config
+ * 
+ * 3. Generate migrations:
+ *    npx drizzle-kit generate:pg
+ * 
+ * 4. Run migrations:
+ *    npx drizzle-kit push:pg
+ * 
+ * 5. Example API endpoint to receive system info:
+ *    import { db } from './db'
+ *    import { machines, systemSnapshots, disks } from './db/schema'
+ * 
+ *    app.post('/api/system-info', async (req, res) => {
+ *      const { hostname, username, ipAddress, macAddress, systemInfo, diskInfo } = req.body
+ *      
+ *      // Find or create machine
+ *      let machine = await db.select().from(machines).where(eq(machines.macAddress, macAddress)).limit(1)
+ *      if (!machine.length) {
+ *        machine = await db.insert(machines).values({
+ *          hostname,
+ *          username,
+ *          ipAddress,
+ *          macAddress,
+ *        }).returning()
+ *      }
+ *      
+ *      // Insert snapshot
+ *      const snapshot = await db.insert(systemSnapshots).values({
+ *        machineId: machine[0].id,
+ *        osType: systemInfo.osType,
+ *        platform: systemInfo.platform,
+ *        // ... rest of fields (remember to send numeric values, not formatted strings!)
+ *      }).returning()
+ *      
+ *      // Insert disks
+ *      for (const disk of diskInfo) {
+ *        await db.insert(disks).values({
+ *          snapshotId: snapshot[0].id,
+ *          fs: disk.fs,
+ *          type: disk.type,
+ *          sizeGb: disk.sizeGb,        // Send as number, not "123.45 GB"
+ *          usedGb: disk.usedGb,
+ *          availableGb: disk.availableGb,
+ *          usagePercent: disk.usagePercent,  // Send as number, not "55.67%"
+ *        })
+ *      }
+ *      
+ *      res.json({ success: true })
+ *    })
+ * 
+ * 6. Example query to get latest snapshot for all machines:
+ *    const latestSnapshots = await db
+ *      .select()
+ *      .from(systemSnapshots)
+ *      .innerJoin(machines, eq(systemSnapshots.machineId, machines.id))
+ *      .orderBy(desc(systemSnapshots.capturedAt))
+ *      .groupBy(machines.id)
+ */
+
+/**
+ * RECOMMENDED INDEXES
+ * 
+ * Add these indexes for better query performance:
+ * 
+ * CREATE INDEX idx_snapshots_machine_captured ON system_snapshots(machine_id, captured_at DESC);
+ * CREATE INDEX idx_snapshots_captured ON system_snapshots(captured_at DESC);
+ * CREATE INDEX idx_disks_snapshot ON disks(snapshot_id);
+ * CREATE INDEX idx_screenshots_machine_captured ON screenshots(machine_id, captured_at DESC);
+ * CREATE INDEX idx_machines_mac ON machines(mac_address);
+ * 
+ * Or using Drizzle:
+ * import { index } from 'drizzle-orm/pg-core'
+ * 
+ * export const systemSnapshots = pgTable('system_snapshots', {
+ *   // ... columns
+ * }, (table) => ({
+ *   machineIdCapturedAtIdx: index('idx_snapshots_machine_captured').on(table.machineId, table.capturedAt),
+ * }))
+ */
